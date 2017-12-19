@@ -72,13 +72,29 @@ def asker(message):
     task1 = q_texts[1] + ": " + q_row.pic_link
     bot.send_message(message.chat.id, task1)
 
+
 # функция смотрит на две вещи: в каком состоянии находится пользователь, 
 @bot.message_handler(content_types=["text"])
-def thematic_response(message):
+def answer(message):
     """ This function gives user messages to dialogue manager
     and sends back to the user its response.
     """
-    bot.send_message(message.chat.id, message.text)
+    if message.chat.id not in queue.index or queue.loc[message.chat.id, 'q_type'] == 0:
+        bot.send_message(message.chat.id, 'Попросите задать вопрос - отправьте команду /ask_me.')
+        return
+    user_log = log.loc[log.u_id == message.chat.id]
+    if len(user_log) == 0:
+        bot.send_message(message.chat.id, 'Ошибка: вопросов не найдено')
+        return
+    last_q_id = user_log.index[-1]
+    log.loc[last_q_id, 'answ'] = message.text
+    log.loc[last_q_id, 'time_answ'] = pd.to_datetime(time.time())
+    queue.loc[message.chat.id, 'q_type'] = 0
+
+    write_db()
+    bot.send_message(message.chat.id, 'Замечательный ответ! Мы его записали. Спасибо.')
+    bot.send_message(message.chat.id, 'Хотите ответить на еще один вопрос? Отправьте команду /ask_me.')
+
 
 bot.polling(none_stop=False)
 
