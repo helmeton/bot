@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 This is the main executable file of the Tolstoy Telegram bot
 """
@@ -14,6 +14,8 @@ import logging  # todo: log with timestamps
 import pickle
 from pandas import ExcelWriter
 
+from task_manager import TaskManager
+
 STATIC_DIR = 'static'
 
 #logging.basicConfig(level=logging.INFO, filename=config.LOG_FILENAME)
@@ -21,19 +23,13 @@ STATIC_DIR = 'static'
 # todo: move all the meaningful work into functions
 
 
-q_texts = {
-    1: 'Опишите, пожалуйста, в одном коротком предложении ситуацию, которая происходит на картинке',
-    2: '',
-    3: '',
-    4: '',
-}
-
 bot = telebot.TeleBot(config.TOKEN)
 path = 'data.xlsx'
 
 pictures=pd.read_excel(path, sheetname='pictures', index_col='pic_id')
 queue=pd.read_excel(path, sheetname='queue', index_col='u_id')
 log=pd.read_excel(path, sheetname='log', index_col='q_id')
+manager = TaskManager(pictures)
 
 
 def write_db():
@@ -44,7 +40,6 @@ def write_db():
     queue.to_excel(writer,'queue')
     log.to_excel(writer,'log')
     writer.save()
-
 
 
 #функции, которые отвечают за вопросы и ответ бота (везде, где есть @bot)
@@ -62,15 +57,23 @@ def greeting1(message):
 @bot.message_handler(commands=['ask_me'])
 def asker(message):
     # todo: maybe choose question from types 2-4 if log is not empty
-    q_type = 1
-    q_row = pictures.sample(1).iloc[0]
-    log_row = pd.Series({'q_type': 1, 'q_text': q_texts[1], 'pic_id': q_row.name, 
+    # q_type = 1
+    # q_row = pictures.sample(1).iloc[0]
+    # task1 = q_texts[1] + ": " + q_row.pic_link
+
+    if len(manager.tasks) == 0:
+        bot.send_message(message.chat.id, 'Ура, вопросы закончились! :)')
+        return
+
+    task = manager.tasks.pop(0)
+
+    pic_id = task.pic_id if task.q_type == 1 else '-' # TODO: ауааргр! то есть, сделать чуть более гибкую архитектуру, рассчитанную на разные типы вопросов
+    log_row = pd.Series({'q_type': task.q_type, 'q_text': task.task, 'pic_id': pic_id, 
         'u_id': message.chat.id, 'time_ask': pd.to_datetime(time.time())})
     log.loc[len(log)] = log_row
-    queue.loc[message.chat.id, 'q_type'] = 1
+    queue.loc[message.chat.id, 'q_type'] = task.q_type
     write_db()
-    task1 = q_texts[1] + ": " + q_row.pic_link
-    bot.send_message(message.chat.id, task1)
+    bot.send_message(message.chat.id, task.task)
 
 
 # функция смотрит на две вещи: в каком состоянии находится пользователь, 
@@ -91,11 +94,14 @@ def answer(message):
     log.loc[last_q_id, 'time_answ'] = pd.to_datetime(time.time())
     queue.loc[message.chat.id, 'q_type'] = 0
 
+
+    manager.add_rephrase_tasks(message.text)
     write_db()
     bot.send_message(message.chat.id, 'Замечательный ответ! Мы его записали. Спасибо.')
     bot.send_message(message.chat.id, 'Хотите ответить на еще один вопрос? Отправьте команду /ask_me.')
 
 
+print('the bot is ready to run!')
 bot.polling(none_stop=False)
 
 
